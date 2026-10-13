@@ -143,13 +143,13 @@ async function api(path, body) {
   if (!r.ok) throw new Error(j.detail || `Error ${r.status}`);
   return j;
 }
-function lock() { TOKEN = null; drop("tb-token"); drop("tb-friends"); $("app").hidden = true; $("app").innerHTML = ""; $("lock").hidden = false; document.body.className = "locked"; $("code").value = ""; $("code").focus(); }
+function lock() { TOKEN = null; drop("tb-token"); drop("tb-friends"); drop("tb-title"); $("app").hidden = true; $("app").innerHTML = ""; $("lock").hidden = false; document.body.className = "locked"; $("code").value = ""; $("code").focus(); }
 
 $("lockForm").addEventListener("submit", async e => {
   e.preventDefault();
   const code = $("code").value.trim(); if (!code) return;
   $("lockMsg").textContent = "Checking…";
-  try { const r = await api("/api/login", {code}); TOKEN = r.token; save("tb-token", TOKEN); save("tb-friends", r.friends); start(r.friends, r); }
+  try { const r = await api("/api/login", {code}); TOKEN = r.token; save("tb-token", TOKEN); save("tb-friends", r.friends); save("tb-title", r.title); start(r.friends, r); }
   catch (err) { $("lockMsg").textContent = err.message === "Failed to fetch" ? "Can't reach the server right now." : err.message; }
 });
 
@@ -160,17 +160,17 @@ $("lockForm").addEventListener("submit", async e => {
 })();
 
 function start(friends, status) {
-  FR = friends; NAMES = FR.map(f => f.n); FR.forEach(f => { COLOR[f.n] = f.c; INK[f.n] = f.ink; }); st = status;
+  FR = friends; NAMES = FR.map(f => f.n); FR.forEach(f => { COLOR[f.n] = f.c; INK[f.n] = f.ink; }); st = {...status, title: status.title || load("tb-title", "The chat")};
   document.body.className = ""; $("lock").hidden = true; $("app").hidden = false;
   $("app").innerHTML = `<div class="wrap">
-    <div class="top"><h1>The chat, with bots</h1><div class="chips"><span class="pill ${st.open ? "on" : ""}" id="awake">${st.open ? `bots awake until ${esc(st.until)}` : "bots asleep for the day"}</span><button class="quiet" id="lockBtn">Lock</button></div></div>
+    <div class="top"><h1>${esc(st.title)}, with bots</h1><div class="chips"><span class="pill ${st.open ? "on" : ""}" id="awake">${st.open ? `bots awake until ${esc(st.until)}` : "bots asleep for the day"}</span><button class="quiet" id="lockBtn">Lock</button></div></div>
     <div class="privacy"><b class="k">Private by design</b><ul>
-      <li>The bots learned from our group chat, and that chat never leaves Ross's private accounts. This page is an empty shell; it holds none of it.</li>
-      <li>The bots run on Ross's private server, behind this code. What you type goes only to the bots to write a reply; it isn't saved or logged there.</li>
+      <li>The bots learned from our group chat, and that chat never leaves our private accounts. This page is an empty shell; it holds none of it.</li>
+      <li>The bots run on our own private server, behind this code. What you type goes only to the bots to write a reply; it isn't saved or logged there.</li>
       <li>Your conversation stays in this browser only. Clear wipes it; Lock signs this device out.</li></ul></div>
     <div class="main">
       <section class="phone" aria-label="Group chat">
-        <div class="phead"><div><b>The chat</b><small id="chatSub"></small></div><div class="tools"><button class="quiet" id="undoBtn">Undo</button><button class="quiet" id="clearBtn">Clear</button></div></div>
+        <div class="phead"><div><b>${esc(st.title)}</b><small id="chatSub"></small></div><div class="tools"><button class="quiet" id="undoBtn">Undo</button><button class="quiet" id="clearBtn">Clear</button></div></div>
         <div class="chat" id="chat" aria-live="polite"></div>
         <div class="compose">
           <div class="chips" id="asChips" role="group" aria-label="Send as"><span class="lab">Send as</span></div>
