@@ -79,8 +79,17 @@ p { margin: 0; }
 .bub { background: var(--bubble); border-radius: 16px; padding: 7px 12px; max-width: min(320px, 100%); overflow-wrap: anywhere; font-size: 0.93rem; }
 .grp.bot .bub { box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--c) 45%, transparent); }
 .rchip { font-size: 0.76rem; border-left: 3px solid var(--muted); padding: 2px 8px; margin-bottom: 4px; color: var(--fg-2); }
-.mcard { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 4px 9px; margin: 2px 0; font-size: 0.82rem; }
+.mcard { display: inline-flex; gap: 6px; align-items: flex-start; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 4px 9px; margin: 2px 0; font-size: 0.82rem; }
 .mcard .cap { color: var(--fg-2); font-style: italic; }
+.mcard .ic { flex: none; }
+.pcard { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 10px; align-items: start; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 8px; margin: 2px 0; max-width: 320px; }
+.pcard .tile { width: 54px; height: 54px; border-radius: 9px; display: grid; place-items: center; font-size: 1.4rem; background: repeating-linear-gradient(135deg, var(--sunk) 0 8px, var(--bubble) 8px 16px); }
+.pcard .what { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.pcard .cap { font-size: 0.86rem; color: var(--fg-2); font-style: italic; }
+.photobtn { border: 0; padding: 0; background: none; border-radius: 12px; cursor: zoom-in; }
+.photobtn:focus-visible { outline: 2px solid var(--water); outline-offset: 2px; }
+.reads { margin: 0; background: #14211f; color: #d9e6e3; border-radius: 12px; padding: 12px; font-family: var(--mono); font-size: 0.74rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+.reads .dim { color: #7f9a95; } .reads .go { color: #ffb59f; font-weight: 600; }
 .mention { font-weight: 700; color: var(--water); }
 .cls { font-size: 0.74rem; color: var(--muted); padding-left: 4px; }
 .cls .ok { color: var(--ok); font-weight: 700; }
@@ -124,7 +133,7 @@ textarea { width: 100%; resize: vertical; }
 @media (max-width: 640px) {
   .wrap { padding-block: 10px 40px; gap: 12px; }
   .top h1 { font-size: 1.35rem; }
-  .main { order: 2; } .privacy { order: 3; }
+  .main { order: 2; } .privacy { order: 3; } .side { gap: 10px; }
   .phone { height: calc(100dvh - 64px); min-height: 0; border-radius: 18px; }
   .phead { padding: 8px 12px; }
   .chat { padding: 10px 8px; gap: 6px; }
@@ -217,6 +226,9 @@ function start(friends, status) {
             <label class="full">Temperature <span id="tempV">0.8</span><input type="range" id="temp" min="0" max="1.3" step="0.1" value="0.8"></label>
           </div>
           <p class="hint"><b>Year</b> sets the chat's date and nudges topics and slang toward that year. <b>Temperature</b>: 0 is the bot's single likeliest reply, higher is more adventurous. <b>Untuned</b> shows the original AI model before it learned the group. <b>Base vs Instruct</b>: two versions of the same model, trained the same way.</p></section>
+        <section class="panel"><details id="readsBox"><summary style="cursor:pointer;font-weight:700">What the bots read</summary>
+          <p class="hint" style="margin-block:8px">The exact text the next bot gets: the chat's header line, the last 30 messages (photos as their descriptions), then the name of whoever answers. It writes what comes next.</p>
+          <pre class="reads" id="reads"></pre></details></section>
         <section class="panel"><h2>Who wrote this?</h2>
           <p class="hint">Type anything and see which friend it sounds like.</p>
           <textarea id="guessText" rows="2" maxlength="500"></textarea>
@@ -236,7 +248,8 @@ function boot() {
     let out = "", last = 0, m;
     while ((m = re.exec(seg))) {
       out += esc(seg.slice(last, m.index)).replace(mention, '<span class="mention">@$1</span>'); last = re.lastIndex;
-      if (m[1]) out += `<span class="mcard">${m[1] === "image" ? "📷 Photo" : "🎬 Video"}${m[2] ? `: <span class="cap">${esc(m[2])}</span>` : ""}</span>`;
+      if (m[1] === "image") out += `<span class="pcard" title="Bots can't send real pictures; they describe one, the way photos appeared in the chat they learned from."><span class="tile" aria-hidden="true">📷</span><span><span class="what">photo, described</span><br><span class="cap">${m[2] ? esc(m[2]) : "a photo"}</span></span></span>`;
+      else if (m[1]) out += `<span class="mcard"><span class="ic">🎬</span><span>Video${m[2] ? `: <span class="cap">${esc(m[2])}</span>` : ""}</span></span>`;
       else if (m[3]) out += `<span class="mcard">📊 Poll: ${esc(m[3])}</span>`;
       else if (m[0] === "[emoji]") out += `<span class="mcard">Sticker</span>`;
       else if (m[4]) out += `<span class="mcard">🔒 Private link · ${esc(m[4])}</span>`;
@@ -259,25 +272,34 @@ function boot() {
       msgs.forEach(m => { const g = groups[groups.length - 1]; if (g && g.who === m.who && !!g.bot === !!m.bot && g.turn === m.turn) g.items.push(m); else groups.push({who: m.who, bot: !!m.bot, turn: m.turn, items: [m]}); });
       html = groups.map(g => { const last = g.items[g.items.length - 1];
         const bubbles = g.items.map(m => m.typing ? `<div class="typing" aria-label="${esc(g.who)} is typing"><span></span><span></span><span></span></div>`
-          : m.img ? `<img class="photo" src="${m.img}" alt="Photo from ${esc(g.who)}">${m.text.replace(IMG, "").trim() ? `<div class="bub">${msgHTML(m.text.replace(IMG, "").trim())}</div>` : ""}<div class="seen">the bots see: ${esc((m.text.match(IMG) || ["", ""])[1])}</div>`
+          : m.img ? `<button class="photobtn" data-seen aria-label="Show what the bots see"><img class="photo" src="${m.img}" alt="Photo from ${esc(g.who)}"></button>${m.text.replace(IMG, "").trim() ? `<div class="bub">${msgHTML(m.text.replace(IMG, "").trim())}</div>` : ""}<div class="seen" hidden>the bots see: ${esc((m.text.match(IMG) || ["", ""])[1])}</div>`
           : `<div class="bub">${msgHTML(m.text)}</div>`).join("");
         return `<div class="grp${g.bot ? " bot" : ""}" style="--c:${col(g.who)};--ci:${INK[g.who] || "#fff"}"><div class="av">${esc(g.who[0])}</div><div class="stack"><div class="who"><i></i>${esc(g.who)}${g.bot ? `<span class="badge">bot</span>` : ""}</div>${bubbles}${g.bot ? cls(last.guess, g.who) : ""}</div></div>`; }).join("");
       if (choosing) html += `<div class="grp bot" style="--c:${col(choosing.who)};--ci:${INK[choosing.who]}"><div class="av">${esc(choosing.who[0])}</div><div class="stack" style="width:100%"><div class="who"><i></i>${esc(choosing.who)}<span class="badge">bot · pick one</span></div>
         ${choosing.takes.map((t, i) => `<button class="takecard" data-take="${i}">${t.messages.map(m => `<span class="bub">${msgHTML(m)}</span>`).join("")}${cls(t.guess, choosing.who)}</button>`).join("")}<button class="quiet" data-take="none">None of these</button></div></div>`;
     }
     $("chat").innerHTML = html; $("chat").scrollTop = $("chat").scrollHeight;
+    drawReads();
     try { localStorage.setItem("tb-chat", JSON.stringify(chat)); } catch (e) { save("tb-chat", chat.map(({img, ...m}) => m)); }
     $("botChips").querySelectorAll(".chip").forEach(c => c.disabled = !!pending || !!choosing); $("sendBtn").disabled = !!choosing;
   }
+  function drawReads() {
+    if (!$("reads")) return;
+    const y = $("year").value, head = y === "none" ? "[The chat]" : `[${esc(st.title)} | ${y}]`;
+    const lines = chat.slice(-30).map(m => esc(`${m.who}: ${m.text}`)).join("\n");
+    const body = `<span class="dim">${y === "none" ? `[${esc(st.title)}]` : head}</span>\n${lines}${lines ? "\n" : ""}<span class="go">${esc(lastBot || NAMES[0])}:</span>`;
+    $("reads").innerHTML = model === "base" ? body : `<span class="dim">&lt;|im_start|&gt;user</span>\n${body.replace(/\n<span class="go">.*$/, "")}<span class="dim">&lt;|im_end|&gt;\n&lt;|im_start|&gt;assistant\n&lt;think&gt;\n\n&lt;/think&gt;</span>\n\n<span class="go">${esc(lastBot || NAMES[0])}:</span>`;
+  }
+  let lastBot = null;
   const chips = (go, sel) => NAMES.map(n => `<button class="chip${go ? " go" : ""}" data-n="${esc(n)}" ${go ? "" : `aria-pressed="${n === sel}"`} style="--c:${col(n)}"><i></i>${esc(n)}</button>`).join("");
   $("asChips").insertAdjacentHTML("beforeend", chips(false, me));
   $("botChips").insertAdjacentHTML("beforeend", chips(true));
   for (let y = 2026; y >= 2017; y--) $("year").insertAdjacentHTML("beforeend", `<option value="${y}">${y}</option>`);
   $("year").value = load("tb-year", "2026");
   const sub = () => $("chatSub").textContent = `${$("year").value === "none" ? "no year" : $("year").value}${tuned ? "" : " · untuned"}`;
-  $("year").onchange = () => { save("tb-year", $("year").value); sub(); };
+  $("year").onchange = () => { save("tb-year", $("year").value); sub(); drawReads(); };
   const seg = (id, cb) => $(id).addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; e.preventDefault(); [...$(id).children].forEach(x => x.setAttribute("aria-pressed", x === b)); cb(b.dataset.v); sub(); });
-  seg("modelSeg", v => model = v); seg("tunedSeg", v => tuned = v === "1");
+  seg("modelSeg", v => { model = v; drawReads(); }); seg("tunedSeg", v => tuned = v === "1");
   $("temp").oninput = () => $("tempV").textContent = $("temp").value;
   sub();
   $("asChips").addEventListener("click", e => { const b = e.target.closest(".chip"); if (!b) return; me = b.dataset.n; save("tb-me", me); $("asChips").querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed", c === b)); $("msgText").focus(); });
@@ -314,7 +336,7 @@ function boot() {
   $("lockBtn").onclick = () => { drop("tb-chat"); lock(); };
   $("botChips").addEventListener("click", async e => {
     const b = e.target.closest(".chip"); if (!b || pending || choosing) return;
-    const who = b.dataset.n; pending = who; $("genMsg").textContent = ""; draw();
+    const who = b.dataset.n; pending = who; lastBot = who; $("genMsg").textContent = ""; draw();
     try {
       const r = await api("/api/reply", {model, adapter: tuned, responder: who, context: chat.slice(-30).map(({who, text}) => ({who, text})), n: +$("nRep").value, temperature: +$("temp").value, year: $("year").value});
       const all = r.replies.filter(x => x.messages.length), turn = Date.now();
@@ -325,6 +347,8 @@ function boot() {
     pending = null; draw();
   });
   $("chat").addEventListener("click", e => {
+    const p = e.target.closest("[data-seen]");
+    if (p) { const seen = p.parentElement.querySelector(".seen"); if (seen) seen.hidden = !seen.hidden; return; }
     const b = e.target.closest("[data-take]"); if (!b || !choosing) return;
     if (b.dataset.take !== "none") { const t = choosing.takes[+b.dataset.take]; t.messages.forEach(m => chat.push({who: choosing.who, text: m, bot: true, turn: choosing.turn, guess: t.guess})); }
     choosing = null; draw();
