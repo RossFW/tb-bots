@@ -63,12 +63,13 @@ p { margin: 0; }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
 .panel h2 { font-size: 1.05rem; font-weight: 800; }
 .hint { color: var(--fg-2); font-size: 0.85rem; }
-.phone { background: var(--phone); border: 1px solid var(--line); border-radius: 26px; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: min(76vh, 700px); min-height: 460px; }
+.phone { background: var(--phone); border: 1px solid var(--line); border-radius: 26px; overflow: clip; display: grid; grid-template-rows: auto auto auto; }
 .phead { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .phead b { font-family: var(--display); font-size: 1rem; }
 .phead small { color: var(--muted); font-size: 0.76rem; display: block; }
 .phead .tools { margin-left: auto; display: flex; gap: 2px; }
-.chat { padding: 14px 12px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+.chat { padding: 14px 12px; display: flex; flex-direction: column; gap: 10px; min-height: min(52vh, 460px); }
+.grp { scroll-margin-bottom: 190px; }
 .empty { color: var(--muted); font-size: 0.9rem; text-align: center; margin: auto; max-width: 34ch; }
 .grp { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; align-items: end; }
 .av { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 0.8rem; background: var(--c); color: var(--ci); }
@@ -100,7 +101,7 @@ p { margin: 0; }
 @media (prefers-reduced-motion: reduce) { .typing span { animation: none; opacity: .6; } }
 .takecard { display: grid; gap: 3px; justify-items: start; text-align: left; width: 100%; border: 1.5px dashed var(--line); border-radius: 14px; padding: 8px; background: transparent; font-weight: 400; }
 .takecard:hover, .takecard:focus-visible { border-color: var(--c); border-style: solid; }
-.compose { border-top: 1px solid var(--line); padding: 10px 12px; display: grid; gap: 8px; }
+.compose { border-top: 1px solid var(--line); padding: 10px 12px; display: grid; gap: 8px; position: sticky; bottom: 0; background: var(--phone); z-index: 2; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
 .lab { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; flex: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 6px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 0.82rem; font-weight: 500; }
@@ -143,7 +144,7 @@ textarea { width: 100%; resize: vertical; }
   .wrap { padding-block: 10px 40px; gap: 12px; }
   .top h1 { font-size: 1.35rem; }
   .main { order: 2; } .privacy { order: 3; } .side { gap: 10px; }
-  .phone { height: calc(100dvh - 64px); min-height: 0; border-radius: 18px; }
+  .phone { border-radius: 18px; }
   .phead { padding: 8px 12px; }
   .chat { padding: 10px 8px; gap: 6px; }
   .grp { grid-template-columns: 26px minmax(0, 1fr); gap: 6px; }
@@ -248,7 +249,7 @@ function start(friends, status) {
 }
 
 function boot() {
-  let chat = load("tb-chat", []), me = load("tb-me", NAMES[0]), model = "instruct", tuned = true, pending = null, choosing = null;
+  let justSent = false, chat = load("tb-chat", []), me = load("tb-me", NAMES[0]), model = "instruct", tuned = true, pending = null, choosing = null;
   if (!NAMES.includes(me)) me = NAMES[0];
   const col = n => COLOR[n] || "var(--muted)";
   const mention = new RegExp(`@(${NAMES.join("|")})\\b`, "g");
@@ -287,7 +288,10 @@ function boot() {
       if (choosing) html += `<div class="grp bot" style="--c:${col(choosing.who)};--ci:${INK[choosing.who]}"><div class="av">${esc(choosing.who[0])}</div><div class="stack" style="width:100%"><div class="who"><i></i>${esc(choosing.who)}<span class="badge">bot · pick one</span></div>
         ${choosing.takes.map((t, i) => `<button class="takecard" data-take="${i}">${t.messages.map(m => `<span class="bub">${msgHTML(m)}</span>`).join("")}${cls(t.guess, choosing.who)}</button>`).join("")}<button class="quiet" data-take="none">None of these</button></div></div>`;
     }
-    $("chat").innerHTML = html; $("chat").scrollTop = $("chat").scrollHeight;
+    $("chat").innerHTML = html;
+    const lastMsg = $("chat").lastElementChild;      // the box grows with the chat; keep the newest message in view
+    if (lastMsg && (pending || choosing || justSent)) lastMsg.scrollIntoView({block: "end", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+    justSent = false;
     drawReads();
     try { localStorage.setItem("tb-chat", JSON.stringify(chat)); } catch (e) { save("tb-chat", chat.map(({img, ...m}) => m)); }
     $("botChips").querySelectorAll(".chip").forEach(c => c.disabled = !!pending || !!choosing); $("sendBtn").disabled = !!choosing;
@@ -329,11 +333,11 @@ function boot() {
   $("preview").addEventListener("click", e => { if (e.target.id === "unphoto") { photo = null; $("preview").hidden = true; } });
   const send = async () => {
     const t = $("msgText").value.trim(); if ((!t && !photo) || choosing || pending) return;
-    if (!photo) { chat.push({who: me, text: t}); $("msgText").value = ""; draw(); return; }
+    if (!photo) { chat.push({who: me, text: t}); $("msgText").value = ""; justSent = true; draw(); return; }
     $("sendBtn").disabled = true; $("genMsg").textContent = "Reading the photo…";
     try {
       const r = await api("/api/caption", {image: photo});
-      chat.push({who: me, text: (t ? t + " " : "") + r.text, img: photo});
+      chat.push({who: me, text: (t ? t + " " : "") + r.text, img: photo}); justSent = true;
       photo = null; $("preview").hidden = true; $("msgText").value = ""; $("genMsg").textContent = "";
     } catch (err) { $("genMsg").textContent = err.message; }
     $("sendBtn").disabled = false; draw();
@@ -353,14 +357,14 @@ function boot() {
       else if (all.length === 1) all[0].messages.forEach(t => chat.push({who, text: t, bot: true, turn, guess: all[0].guess}));
       else choosing = {who, takes: all, turn};
     } catch (err) { $("genMsg").textContent = err.message; }
-    pending = null; draw();
+    pending = null; justSent = true; draw();
   });
   $("chat").addEventListener("click", e => {
     const p = e.target.closest("[data-seen]");
     if (p) { const seen = p.parentElement.querySelector(".seen"); if (seen) seen.hidden = !seen.hidden; return; }
     const b = e.target.closest("[data-take]"); if (!b || !choosing) return;
     if (b.dataset.take !== "none") { const t = choosing.takes[+b.dataset.take]; t.messages.forEach(m => chat.push({who: choosing.who, text: m, bot: true, turn: choosing.turn, guess: t.guess})); }
-    choosing = null; draw();
+    choosing = null; justSent = true; draw();
   });
   $("guessBtn").onclick = async () => {
     const t = $("guessText").value.trim(); if (!t) return;
