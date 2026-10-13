@@ -133,8 +133,10 @@ textarea { width: 100%; resize: vertical; }
 #shotStage { position: fixed; left: -10000px; top: 0; width: 400px; background: var(--phone); color: var(--fg); }
 #shotStage .shead { padding: 14px 16px; border-bottom: 1px solid var(--line); }
 #shotStage .shead b { font-family: var(--display); font-size: 1.05rem; } #shotStage .shead small { display: block; color: var(--muted); font-size: 0.76rem; }
-#shotStage .chat { overflow: visible; height: auto; }
+#shotStage .chat { overflow: visible; height: auto; min-height: 0; }
 #shotStage .cls { white-space: nowrap; }
+.chat .meta { display: none; }
+#shotStage .meta { display: block; font-family: var(--mono); font-size: 0.6rem; color: var(--muted); padding-left: 4px; }
 #shotStage .sfoot { padding: 8px 16px 12px; font-family: var(--mono); font-size: 0.62rem; color: var(--muted); }
 .overlay { position: fixed; inset: 0; z-index: 10; background: rgb(0 0 0 / 0.6); display: grid; place-items: center; padding: 16px; padding-top: calc(16px + env(safe-area-inset-top, 0px)); }
 .overlay .card { background: var(--surface); border-radius: 16px; padding: 14px; display: grid; gap: 10px; width: min(440px, 100%); max-height: 100%; overflow: auto; }
@@ -269,6 +271,8 @@ function boot() {
   };
   const REPLY = /^\(replying to (\w+)(?:: "(.*?)")?\) /;
   const IMG = /\[image: ([^\]]*)\]/;
+  const metaText = m => m ? `${m.model} · ${m.tuned ? "trained" : "untuned"} · temp ${Number(m.temp).toFixed(1)} · ${m.year === "none" ? "no year" : m.year}${m.takes > 1 ? ` · picked from ${m.takes} takes` : ""}` : "";
+  const metaHTML = m => m ? `<div class="meta">${esc(metaText(m))}</div>` : "";
   const msgHTML = t => { let chip = ""; const m = t.match(REPLY); if (m) { chip = `<div class="rchip">↩ <b>${esc(m[1])}</b>${m[2] ? `: “${esc(m[2])}”` : ""}</div>`; t = t.slice(m[0].length); } return chip + inline(t); };
   const cls = (g, who) => { if (!g) return ""; const top = g[0][0], mine = (g.find(x => x[0] === who) || [0, 0])[1];
     return top === who ? `<div class="cls"><span class="ok">✓ sounds like ${esc(who)}</span> ${pct(mine)}</div>` : `<div class="cls">sounds more like <b style="color:${col(top)}">${esc(top)}</b> ${pct(g[0][1])} · ${esc(who)} ${pct(mine)}</div>`; };
@@ -284,7 +288,7 @@ function boot() {
         const bubbles = g.items.map(m => m.typing ? `<div class="typing" aria-label="${esc(g.who)} is typing"><span></span><span></span><span></span></div>`
           : m.img ? `<button class="photobtn" data-seen aria-label="Show what the bots see"><img class="photo" src="${m.img}" alt="Photo from ${esc(g.who)}"></button>${m.text.replace(IMG, "").trim() ? `<div class="bub">${msgHTML(m.text.replace(IMG, "").trim())}</div>` : ""}<div class="seen" hidden>the bots see: ${esc((m.text.match(IMG) || ["", ""])[1])}</div>`
           : `<div class="bub">${msgHTML(m.text)}</div>`).join("");
-        return `<div class="grp${g.bot ? " bot" : ""}" style="--c:${col(g.who)};--ci:${INK[g.who] || "#fff"}"><div class="av">${esc(g.who[0])}</div><div class="stack"><div class="who"><i></i>${esc(g.who)}${g.bot ? `<span class="badge">bot</span>` : ""}</div>${bubbles}${g.bot ? cls(last.guess, g.who) : ""}</div></div>`; }).join("");
+        return `<div class="grp${g.bot ? " bot" : ""}" style="--c:${col(g.who)};--ci:${INK[g.who] || "#fff"}"><div class="av">${esc(g.who[0])}</div><div class="stack"><div class="who"><i></i>${esc(g.who)}${g.bot ? `<span class="badge">bot</span>` : ""}</div>${bubbles}${g.bot ? cls(last.guess, g.who) + metaHTML(last.meta) : ""}</div></div>`; }).join("");
       if (choosing) html += `<div class="grp bot" style="--c:${col(choosing.who)};--ci:${INK[choosing.who]}"><div class="av">${esc(choosing.who[0])}</div><div class="stack" style="width:100%"><div class="who"><i></i>${esc(choosing.who)}<span class="badge">bot · pick one</span></div>
         ${choosing.takes.map((t, i) => `<button class="takecard" data-take="${i}">${t.messages.map(m => `<span class="bub">${msgHTML(m)}</span>`).join("")}${cls(t.guess, choosing.who)}</button>`).join("")}<button class="quiet" data-take="none">None of these</button></div></div>`;
     }
@@ -353,9 +357,10 @@ function boot() {
     try {
       const r = await api("/api/reply", {model, adapter: tuned, responder: who, context: chat.slice(-30).map(({who, text}) => ({who, text})), n: +$("nRep").value, temperature: +$("temp").value, year: $("year").value});
       const all = r.replies.filter(x => x.messages.length), turn = Date.now();
+      const meta = {model, tuned, temp: +$("temp").value, year: $("year").value, takes: +$("nRep").value};
       if (!all.length) $("genMsg").textContent = `${who}'s bot didn't write anything that time. Try again.`;
-      else if (all.length === 1) all[0].messages.forEach(t => chat.push({who, text: t, bot: true, turn, guess: all[0].guess}));
-      else choosing = {who, takes: all, turn};
+      else if (all.length === 1) all[0].messages.forEach(t => chat.push({who, text: t, bot: true, turn, guess: all[0].guess, meta}));
+      else choosing = {who, takes: all, turn, meta};
     } catch (err) { $("genMsg").textContent = err.message; }
     pending = null; justSent = true; draw();
   });
@@ -363,7 +368,7 @@ function boot() {
     const p = e.target.closest("[data-seen]");
     if (p) { const seen = p.parentElement.querySelector(".seen"); if (seen) seen.hidden = !seen.hidden; return; }
     const b = e.target.closest("[data-take]"); if (!b || !choosing) return;
-    if (b.dataset.take !== "none") { const t = choosing.takes[+b.dataset.take]; t.messages.forEach(m => chat.push({who: choosing.who, text: m, bot: true, turn: choosing.turn, guess: t.guess})); }
+    if (b.dataset.take !== "none") { const t = choosing.takes[+b.dataset.take]; t.messages.forEach(m => chat.push({who: choosing.who, text: m, bot: true, turn: choosing.turn, guess: t.guess, meta: choosing.meta})); }
     choosing = null; justSent = true; draw();
   });
   $("guessBtn").onclick = async () => {
@@ -376,11 +381,15 @@ function boot() {
   const touch = matchMedia("(pointer: coarse)").matches;
   const lib = () => window.htmlToImage ? Promise.resolve() : new Promise((ok, bad) => { const sc = document.createElement("script"); sc.src = "https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js"; sc.onload = ok; sc.onerror = bad; document.head.appendChild(sc); });
   const toast = t => { const d = document.createElement("div"); d.className = "toast"; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2200); };
+  function footer() {
+    const used = [...new Set(chat.filter(m => m.bot && m.meta).map(m => metaText(m.meta)))];
+    return used.length ? `bot settings: ${used.join("  |  ")}` : "made with the bots";
+  }
   async function render() {
     if (!chat.length) throw new Error("Nothing to capture yet.");
     await lib();
     const stage = document.createElement("div"); stage.id = "shotStage";
-    stage.innerHTML = `<div class="shead"><b>${esc(st.title)}</b><small>${esc($("chatSub").textContent)}</small></div><div class="chat">${$("chat").innerHTML}</div><div class="sfoot">made with the bots</div>`;
+    stage.innerHTML = `<div class="shead"><b>${esc(st.title)}</b><small>${esc($("chatSub").textContent)}</small></div><div class="chat">${$("chat").innerHTML}</div><div class="sfoot">${esc(footer())}</div>`;
     stage.querySelectorAll(".takecard, [data-take], .typing").forEach(n => n.closest(".grp") ? n.closest(".grp").remove() : n.remove());
     stage.querySelectorAll(".seen").forEach(n => n.hidden = false);
     document.body.appendChild(stage);
