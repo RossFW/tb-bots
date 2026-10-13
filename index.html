@@ -129,7 +129,16 @@ textarea { width: 100%; resize: vertical; }
 .bar .track { height: 9px; background: var(--sunk); border-radius: 99px; overflow: hidden; }
 .bar .fill { display: block; height: 100%; border-radius: 99px; }
 .bar .n { font-family: var(--mono); font-size: 0.74rem; text-align: right; color: var(--fg-2); }
-.phone.shot .compose { display: none; }
+#shotStage { position: fixed; left: -10000px; top: 0; width: 400px; background: var(--phone); color: var(--fg); }
+#shotStage .shead { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+#shotStage .shead b { font-family: var(--display); font-size: 1.05rem; } #shotStage .shead small { display: block; color: var(--muted); font-size: 0.76rem; }
+#shotStage .chat { overflow: visible; height: auto; }
+#shotStage .cls { white-space: nowrap; }
+#shotStage .sfoot { padding: 8px 16px 12px; font-family: var(--mono); font-size: 0.62rem; color: var(--muted); }
+.overlay { position: fixed; inset: 0; z-index: 10; background: rgb(0 0 0 / 0.6); display: grid; place-items: center; padding: 16px; padding-top: calc(16px + env(safe-area-inset-top, 0px)); }
+.overlay .card { background: var(--surface); border-radius: 16px; padding: 14px; display: grid; gap: 10px; width: min(440px, 100%); max-height: 100%; overflow: auto; }
+.overlay img { width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); -webkit-touch-callout: default; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 11; background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 999px; font-size: 0.88rem; }
 @media (max-width: 640px) {
   .wrap { padding-block: 10px 40px; gap: 12px; }
   .top h1 { font-size: 1.35rem; }
@@ -204,7 +213,7 @@ function start(friends, status) {
       <li>Your conversation stays in this browser only. Clear wipes it; Lock signs this device out.</li></ul></div>
     <div class="main">
       <section class="phone" aria-label="Group chat">
-        <div class="phead"><div><b>${esc(st.title)}</b><small id="chatSub"></small></div><div class="tools"><button class="quiet" id="shotBtn" aria-pressed="false" title="Hide the typing area to fit more chat in a screenshot">Screenshot</button><button class="quiet" id="undoBtn">Undo</button><button class="quiet" id="clearBtn">Clear</button></div></div>
+        <div class="phead"><div><b>${esc(st.title)}</b><small id="chatSub"></small></div><div class="tools"><button class="quiet" id="shotBtn" title="Make an image of the whole conversation">Copy image</button><button class="quiet" id="undoBtn">Undo</button><button class="quiet" id="clearBtn">Clear</button></div></div>
         <div class="chat" id="chat" aria-live="polite"></div>
         <div class="compose">
           <div class="chips" id="asChips" role="group" aria-label="Send as"><span class="lab">Send as</span></div>
@@ -332,7 +341,7 @@ function boot() {
   $("sendBtn").onclick = send; $("msgText").addEventListener("keydown", e => { if (e.key === "Enter") send(); });
   $("undoBtn").onclick = () => { if (!chat.length) return; const t = chat[chat.length - 1].turn; chat = t ? chat.filter(m => m.turn !== t) : chat.slice(0, -1); draw(); };
   $("clearBtn").onclick = () => { chat = []; choosing = null; draw(); };
-  $("shotBtn").onclick = () => { const on = !$("chat").parentElement.classList.toggle("shot") ? false : true; $("shotBtn").setAttribute("aria-pressed", on); $("shotBtn").textContent = on ? "Done" : "Screenshot"; $("chat").scrollTop = $("chat").scrollHeight; };
+  $("shotBtn").onclick = () => shoot();
   $("lockBtn").onclick = () => { drop("tb-chat"); lock(); };
   $("botChips").addEventListener("click", async e => {
     const b = e.target.closest(".chip"); if (!b || pending || choosing) return;
@@ -359,6 +368,46 @@ function boot() {
       $("guessOut").innerHTML = `<p style="font-size:0.88rem">Sounds most like <b style="color:${col(r.guess[0][0])}">${esc(r.guess[0][0])}</b></p><div class="bars">${r.guess.map(([f, p]) => `<div class="bar"><span style="color:${col(f)};font-weight:600">${esc(f)}</span><span class="track"><span class="fill" style="width:${Math.max(1, p * 100)}%;background:${col(f)}"></span></span><span class="n">${pct(p)}</span></div>`).join("")}</div>`; }
     catch (err) { $("guessOut").textContent = err.message; }
   };
+  // ---- conversation -> image ----
+  const touch = matchMedia("(pointer: coarse)").matches;
+  const lib = () => window.htmlToImage ? Promise.resolve() : new Promise((ok, bad) => { const sc = document.createElement("script"); sc.src = "https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js"; sc.onload = ok; sc.onerror = bad; document.head.appendChild(sc); });
+  const toast = t => { const d = document.createElement("div"); d.className = "toast"; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2200); };
+  async function render() {
+    if (!chat.length) throw new Error("Nothing to capture yet.");
+    await lib();
+    const stage = document.createElement("div"); stage.id = "shotStage";
+    stage.innerHTML = `<div class="shead"><b>${esc(st.title)}</b><small>${esc($("chatSub").textContent)}</small></div><div class="chat">${$("chat").innerHTML}</div><div class="sfoot">made with the bots</div>`;
+    stage.querySelectorAll(".takecard, [data-take], .typing").forEach(n => n.closest(".grp") ? n.closest(".grp").remove() : n.remove());
+    stage.querySelectorAll(".seen").forEach(n => n.hidden = false);
+    document.body.appendChild(stage);
+    try { return await htmlToImage.toBlob(stage, {pixelRatio: 2, backgroundColor: getComputedStyle(stage).backgroundColor, style: {position: "static", left: "0", top: "0"}}); }
+    finally { stage.remove(); }
+  }
+  function showImage(blob) {
+    const url = URL.createObjectURL(blob), file = new File([blob], "chat.png", {type: "image/png"});
+    const canShare = navigator.canShare && navigator.canShare({files: [file]});
+    const ov = document.createElement("div"); ov.className = "overlay";
+    ov.innerHTML = `<div class="card" role="dialog" aria-label="Chat image"><img src="${url}" alt="Image of the conversation"><p class="hint">${touch ? "Press and hold the image to copy it or save it to Photos." : "Right-click the image to copy or save it."}</p><div class="chips">${canShare ? `<button class="primary" data-a="share">Share</button>` : ""}${navigator.clipboard && window.ClipboardItem ? `<button data-a="copy">Copy</button>` : ""}<button class="quiet" data-a="close">Close</button></div></div>`;
+    ov.addEventListener("click", async e => {
+      const a = e.target.dataset.a;
+      if (e.target === ov || a === "close") { URL.revokeObjectURL(url); ov.remove(); }
+      else if (a === "share") { try { await navigator.share({files: [file]}); } catch (err) {} }
+      else if (a === "copy") { try { await navigator.clipboard.write([new ClipboardItem({"image/png": blob})]); toast("Copied. Paste it anywhere."); } catch (err) { toast("Couldn't copy here; press and hold the image instead."); } }
+    });
+    document.body.appendChild(ov);
+  }
+  async function shoot() {
+    const b = $("shotBtn"); b.disabled = true; b.textContent = "Making image…";
+    try {
+      if (!touch && navigator.clipboard && window.ClipboardItem) {
+        const made = render();   // copy straight away on computers (the clipboard call must start inside the click)
+        try { await navigator.clipboard.write([new ClipboardItem({"image/png": made})]); toast("Copied. Paste it anywhere."); }
+        catch (err) { showImage(await made); }
+      } else showImage(await render());
+    } catch (err) { toast(err.message || "Couldn't make the image."); }
+    b.disabled = false; b.textContent = "Copy image";
+  }
+
   draw();
   setInterval(async () => { try { const s = await api("/api/status"); $("awake").className = "pill" + (s.open ? " on" : ""); $("awake").textContent = s.open ? `bots awake until ${s.until}` : "bots asleep for the day"; } catch (e) {} }, 60000);
 }
